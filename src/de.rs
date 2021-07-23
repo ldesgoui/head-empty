@@ -23,7 +23,7 @@ impl<'a> Seed<'a> {
 
         for reg in slice {
             if regs.insert(reg.field, reg).is_some() {
-                panic!("The field '{}' was once too many times", reg.field);
+                panic!("The field '{}' was registered once too many times", reg.field);
             }
         }
 
