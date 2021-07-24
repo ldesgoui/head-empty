@@ -2,7 +2,8 @@ use crate::{DeserializeFn, Registration, Store};
 use erased_serde as erased;
 use serde::de::{self, DeserializeSeed, Deserializer, MapAccess, Visitor};
 use std::any::Any;
-use std::collections::HashMap;
+use std::borrow::Cow;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 pub(crate) fn deserialize<'de, Der>(regs: &[Registration], der: Der) -> Result<Store, Der::Error>
@@ -13,7 +14,6 @@ where
 }
 
 struct Seed<'a> {
-    store: Store,
     regs: HashMap<&'static str, &'a Registration>,
 }
 
@@ -23,14 +23,14 @@ impl<'a> Seed<'a> {
 
         for reg in slice {
             if regs.insert(reg.field, reg).is_some() {
-                panic!("The field '{}' was registered once too many times", reg.field);
+                panic!(
+                    "The field '{}' was registered once too many times",
+                    reg.field
+                );
             }
         }
 
-        Self {
-            store: Store::with_capacity(slice.len()),
-            regs,
-        }
+        Self { regs }
     }
 }
 
@@ -41,33 +41,50 @@ impl<'de> DeserializeSeed<'de> for Seed<'_> {
     where
         Der: Deserializer<'de>,
     {
-        Ok(der.deserialize_map(self)?.store)
+        der.deserialize_map(self)
     }
 }
 
 impl<'de, 'a> Visitor<'de> for Seed<'a> {
-    type Value = Seed<'a>;
+    type Value = Store;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         formatter.write_str("Configuration")
     }
 
-    fn visit_map<A>(mut self, mut map: A) -> Result<Self::Value, A::Error>
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
     where
         A: MapAccess<'de>,
     {
-        while let Some(key) = map.next_key::<String>()? {
-            if let Some(reg) = self.regs.get(&*key) {
-                let x = map.next_value_seed(Wrapper(&reg.deserialize))?;
-                let type_id = (reg.type_id)();
+        let mut store = Store::with_capacity(self.regs.len());
+        let mut visited = HashSet::with_capacity(self.regs.len());
 
-                if self.store.insert(type_id, x).is_some() {
+        while let Some(key) = map.next_key::<Cow<str>>()? {
+            if let Some(reg) = self.regs.get(key.as_ref()) {
+                if !visited.insert(key) {
                     return Err(de::Error::duplicate_field(reg.field));
                 }
+
+                let type_id = (reg.type_id)();
+                let boxed = map.next_value_seed(Wrapper(&reg.deserialize))?;
+
+                store.insert(type_id, boxed);
+            } else {
+                // TODO: deny unknown fields
             }
         }
 
-        Ok(self)
+        for reg in self.regs.values() {
+            if visited.contains(reg.field) {
+                continue;
+            }
+
+            // TODO: default
+
+            return Err(de::Error::missing_field(reg.field));
+        }
+
+        Ok(store)
     }
 }
 
@@ -81,7 +98,7 @@ impl<'de> DeserializeSeed<'de> for Wrapper<&DeserializeFn> {
         D: Deserializer<'de>,
     {
         let mut erased = <dyn erased::Deserializer>::erase(der);
-        (self.0)(&mut erased).map_err(serde::de::Error::custom)
+        (self.0)(&mut erased).map_err(de::Error::custom)
     }
 }
 
@@ -125,7 +142,18 @@ mod tests {
     }
 
     #[test]
-    fn hello() {
+    fn missing_field() {
+        let de = json::json!({
+            "listen_port": 8080,
+        });
+
+        let registrations = REGISTRATIONS;
+
+        assert!(super::deserialize(&registrations, de).is_err());
+    }
+
+    #[test]
+    fn smoke_test() {
         let de = json::json!({
             "mysql": {
                 "host": "localhost:5432",
