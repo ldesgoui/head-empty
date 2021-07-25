@@ -1,4 +1,65 @@
-//! docs here
+//! **Define parts of your configuration schema throughout your codebase**
+//!
+//! ## Example
+//!
+//! ```
+//! // mysql.rs
+//!
+//! #[derive(Debug, PartialEq, Eq, serde::Deserialize)]
+//! struct Mysql {
+//!     host: String,
+//!     database: String,
+//!     user: String,
+//!     password: String,
+//! }
+//!
+//! head_empty::register! {
+//!     mysql: Mysql,
+//! }
+//!
+//! // main.rs
+//!
+//! #[derive(Debug, PartialEq, Eq, serde::Deserialize)]
+//! struct Debug(bool);
+//!
+//! #[derive(Debug, PartialEq, Eq, serde::Deserialize)]
+//! struct ListenPort(u16);
+//!
+//! head_empty::register! {
+//!     debug: Debug,
+//!     listen_port: ListenPort,
+//! }
+//!
+//! let deserializer = serde_json::json!({
+//!     "mysql": {
+//!         "host": "localhost:5432",
+//!         "database": "test",
+//!         "user": "root",
+//!         "password": "toor",
+//!     },
+//!     "debug": true,
+//!     "listen_port": 8080,
+//! });
+//!
+//! head_empty::init(deserializer).expect("deserializing configuration failed");
+//!
+//! let mysql: &'static Mysql = Mysql::configured();
+//! assert_eq!(
+//!     mysql,
+//!     &Mysql {
+//!         host: "localhost:5432".into(),
+//!         database: "test".into(),
+//!         user: "root".into(),
+//!         password: "toor".into()
+//!     }
+//! );
+//!
+//! let debug: &'static Debug = Debug::configured();
+//! assert_eq!(debug, &Debug(true));
+//!
+//! let listen_port: &'static ListenPort = ListenPort::configured();
+//! assert_eq!(listen_port, &ListenPort(8080));
+//! ```
 
 #![deny(unsafe_code)]
 
@@ -49,7 +110,13 @@ pub static REGISTRATIONS: [Registration] = [..];
 #[cfg_attr(feature = "internal-doc-hidden", doc(hidden))]
 pub trait CanOnlyRegisterOnce {}
 
-/// init
+/// Initialize configuration by deserializing it from a [`serde::Deserializer`]
+///
+/// # Panics
+///
+/// This will panic if it has already succeeded prior
+///
+/// This will panic if the same field name has been registered multiple times
 pub fn init<'de, Der>(der: Der) -> Result<(), Der::Error>
 where
     Der: serde::Deserializer<'de>,
@@ -63,11 +130,27 @@ where
     Ok(())
 }
 
-/// register
+/// Register a type to be deserialized during [`init`]
+///
+/// Types or field names may only be registered once
+///
+/// Only crate-local types may be used
+///
+/// The trailing comma is optional
+///
+/// ```
+/// # #[derive(serde::Deserialize)] struct Type;
+/// # #[derive(serde::Deserialize)] struct Type2;
+/// #
+/// head_empty::register! {
+///     name: Type,
+///     name2: Type2,
+/// }
+/// ```
 #[macro_export]
 macro_rules! register {
     ( $( $field:ident: $type:ty ),* ) => {
-        $crate::register!{ $( $field: $type, )* }
+        $crate::register! { $( $field: $type, )* }
     };
 
     ( $( $field:ident: $type:ty , )+ ) => {
@@ -88,6 +171,9 @@ macro_rules! register {
             }
 
             impl $type {
+                /// # Panics
+                ///
+                /// This will panic if [`head_empty::init`] has not successfully ran prior
                 fn configured() -> &'static Self {
                     $crate::store_get()
                 }
