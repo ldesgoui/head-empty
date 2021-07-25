@@ -1,4 +1,4 @@
-# head\_empty
+# head-empty
 
 ## Define parts of your configuration schema throughout your codebase
 
