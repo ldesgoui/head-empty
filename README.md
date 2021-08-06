@@ -1,6 +1,4 @@
-# head-empty
-
-## Define parts of your configuration schema throughout your codebase
+Define parts of your configuration schema throughout your codebase
 
 ### Example
 
