@@ -65,10 +65,9 @@ impl<'de, 'a> Visitor<'de> for Seed<'a> {
                     return Err(de::Error::duplicate_field(reg.field));
                 }
 
-                let type_id = (reg.type_id)();
                 let boxed = map.next_value_seed(Wrapper(&reg.deserialize))?;
 
-                store.insert(type_id, boxed);
+                store.insert(reg.field, boxed);
             } else {
                 // TODO: deny unknown fields
             }
@@ -107,7 +106,6 @@ mod tests {
     use super::*;
     use erased_serde as erased;
     use serde_json as json;
-    use std::any::TypeId;
 
     #[derive(Debug, PartialEq, Eq, serde::Deserialize)]
     struct Mysql {
@@ -123,22 +121,16 @@ mod tests {
     const REGISTRATIONS: [Registration; 2] = [
         Registration {
             field: "mysql",
-            type_id: || TypeId::of::<Mysql>(),
             deserialize: |d| Ok(Box::new(erased::deserialize::<Mysql>(d)?)),
         },
         Registration {
             field: "listen_port",
-            type_id: || TypeId::of::<ListenPort>(),
             deserialize: |d| Ok(Box::new(erased::deserialize::<ListenPort>(d)?)),
         },
     ];
 
-    fn get<'a, T: 'static>(store: &'a Store) -> &'a T {
-        store
-            .get(&TypeId::of::<T>())
-            .unwrap()
-            .downcast_ref()
-            .unwrap()
+    fn get<'a, T: 'static>(store: &'a Store, field: &'static str) -> &'a T {
+        store.get(field).unwrap().downcast_ref().unwrap()
     }
 
     #[test]
@@ -170,7 +162,7 @@ mod tests {
         assert_eq!(store.len(), registrations.len());
 
         assert_eq!(
-            get::<Mysql>(&store),
+            get::<Mysql>(&store, "mysql"),
             &Mysql {
                 host: "localhost:5432".into(),
                 database: "test".into(),
@@ -179,6 +171,6 @@ mod tests {
             }
         );
 
-        assert_eq!(get::<ListenPort>(&store), &ListenPort(8080));
+        assert_eq!(get::<ListenPort>(&store, "listen_port"), &ListenPort(8080));
     }
 }

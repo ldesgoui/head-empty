@@ -13,19 +13,19 @@ pub use paste;
 
 use erased_serde as erased;
 use once_cell::race::OnceBox;
-use std::any::{Any, TypeId};
+use std::any::Any;
 use std::collections::HashMap;
 
-type Store = HashMap<TypeId, Box<dyn Any + Send + Sync>>;
+type Store = HashMap<&'static str, Box<dyn Any + Send + Sync>>;
 
 static STORE: OnceBox<Store> = OnceBox::new();
 
 #[cfg_attr(feature = "internal-doc-hidden", doc(hidden))]
-pub fn store_get<T>() -> &'static T {
+pub fn store_get<T>(field: &'static str) -> &'static T {
     STORE
         .get()
         .expect("`head_empty::init` was not called soon enough")
-        .get(&TypeId::of::<T>())
+        .get(field)
         .unwrap()
         .downcast_ref()
         .unwrap()
@@ -34,7 +34,6 @@ pub fn store_get<T>() -> &'static T {
 #[cfg_attr(feature = "internal-doc-hidden", doc(hidden))]
 pub struct Registration {
     pub field: &'static str,
-    pub type_id: fn() -> TypeId,
     pub deserialize: DeserializeFn,
 }
 
@@ -99,7 +98,6 @@ macro_rules! register {
                 #[$crate::linkme::distributed_slice($crate::REGISTRATIONS)]
                 static [< REGISTRATION_FOR_ $field >]: $crate::Registration = $crate::Registration {
                     field: ::std::stringify!($field),
-                    type_id: || ::std::any::TypeId::of::<$type>(),
                     deserialize: |d| {
                         ::std::result::Result::Ok(::std::boxed::Box::new(
                             $crate::erased_serde::deserialize::<$type>(d)?,
@@ -113,7 +111,7 @@ macro_rules! register {
                 ///
                 /// This will panic if [`head_empty::init`] has not successfully ran prior
                 fn configured() -> &'static Self {
-                    $crate::store_get()
+                    $crate::store_get(::std::stringify!($field))
                 }
             }
         )+
