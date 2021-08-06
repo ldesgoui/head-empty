@@ -1,7 +1,6 @@
 #![doc = include_str!("../README.md")]
 #![deny(unsafe_code)]
 
-mod compile_tests;
 mod de;
 
 #[cfg_attr(feature = "internal-doc-hidden", doc(hidden))]
@@ -44,9 +43,6 @@ type DeserializeFn =
 #[linkme::distributed_slice]
 pub static REGISTRATIONS: [Registration] = [..];
 
-#[cfg_attr(feature = "internal-doc-hidden", doc(hidden))]
-pub trait CanOnlyRegisterOnce {}
-
 /// Initialize configuration by deserializing it from a [`serde::Deserializer`]
 ///
 /// # Panics
@@ -67,21 +63,43 @@ where
     Ok(())
 }
 
-/// Register a type to be deserialized during [`init`]
+/// Register fields to be deserialized during [`init`]
 ///
-/// Types or field names may only be registered once
+/// ```rust
+/// head_empty::register! {
+///     host: String,
+///     port: u8,
+/// }
 ///
-/// Only crate-local types may be used
+/// // Will define:
+/// // fn configured_host() -> &'static String;
+/// // fn configured_port() -> &'static u8;
+/// ```
+///
+/// A field name can only be registered once
+///
+/// ```rust,should_panic
+/// head_empty::register! {
+///     same_field: String,
+/// # }
+/// # mod another {
+/// # head_empty::register! {
+///     same_field: u16,
+/// }
+/// # }
+/// # let deserializer = serde_json::json!({
+/// #     "same_field": "woops!",
+/// # });
+///
+/// head_empty::init(deserializer); // panic!
+/// ```
 ///
 /// The trailing comma is optional
 ///
-/// ```
-/// # #[derive(serde::Deserialize)] struct Type;
-/// # #[derive(serde::Deserialize)] struct Type2;
-/// #
+/// ```rust
 /// head_empty::register! {
-///     name: Type,
-///     name2: Type2,
+///     host: String,
+///     port: u8
 /// }
 /// ```
 #[macro_export]
@@ -91,29 +109,32 @@ macro_rules! register {
     };
 
     ( $( $field:ident: $type:ty , )+ ) => {
-        $(
-            impl $crate::CanOnlyRegisterOnce for $type {}
-
-            $crate::paste::paste! {
-                #[$crate::linkme::distributed_slice($crate::REGISTRATIONS)]
-                static [< REGISTRATION_FOR_ $field >]: $crate::Registration = $crate::Registration {
-                    field: ::std::stringify!($field),
-                    deserialize: |d| {
-                        ::std::result::Result::Ok(::std::boxed::Box::new(
-                            $crate::erased_serde::deserialize::<$type>(d)?,
-                        ))
-                    },
-                };
-            }
-
-            impl $type {
+        $crate::paste::paste! {
+            $(
+                /// Get the configured value for the field
+                #[doc = "`"]
+                #[doc = ::std::stringify!($field)]
+                #[doc = "`"]
+                ///
                 /// # Panics
                 ///
                 /// This will panic if [`head_empty::init`] has not successfully ran prior
-                fn configured() -> &'static Self {
-                    $crate::store_get(::std::stringify!($field))
+                fn [< configured_ $field >]() -> &'static $type {
+                    use $crate::{
+                        erased_serde, linkme::distributed_slice, store_get, Registration,
+                        REGISTRATIONS,
+                    };
+                    use ::std::{boxed::Box, result::Result::Ok, stringify};
+
+                    #[distributed_slice(REGISTRATIONS)]
+                    static REGISTRATION: Registration = Registration {
+                        field: stringify!($field),
+                        deserialize: |d| Ok(Box::new(erased_serde::deserialize::<$type>(d)?)),
+                    };
+
+                    store_get(stringify!($field))
                 }
-            }
-        )+
+            )+
+        }
     };
 }

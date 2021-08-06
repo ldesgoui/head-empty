@@ -115,9 +115,6 @@ mod tests {
         password: String,
     }
 
-    #[derive(Debug, PartialEq, Eq, serde::Deserialize)]
-    struct ListenPort(u16);
-
     const REGISTRATIONS: [Registration; 2] = [
         Registration {
             field: "mysql",
@@ -125,7 +122,7 @@ mod tests {
         },
         Registration {
             field: "listen_port",
-            deserialize: |d| Ok(Box::new(erased::deserialize::<ListenPort>(d)?)),
+            deserialize: |d| Ok(Box::new(erased::deserialize::<u16>(d)?)),
         },
     ];
 
@@ -171,6 +168,6 @@ mod tests {
             }
         );
 
-        assert_eq!(get::<ListenPort>(&store, "listen_port"), &ListenPort(8080));
+        assert_eq!(get::<u16>(&store, "listen_port"), &8080);
     }
 }

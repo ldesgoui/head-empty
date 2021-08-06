@@ -3,31 +3,9 @@ Define parts of your configuration schema throughout your codebase
 ### Example
 
 ```rust
-// mysql.rs
-
-#[derive(Debug, PartialEq, Eq, serde::Deserialize)]
-struct Mysql {
-    host: String,
-    database: String,
-    user: String,
-    password: String,
-}
-
 head_empty::register! {
-    mysql: Mysql,
-}
-
-// main.rs
-
-#[derive(Debug, PartialEq, Eq, serde::Deserialize)]
-struct Debug(bool);
-
-#[derive(Debug, PartialEq, Eq, serde::Deserialize)]
-struct ListenPort(u16);
-
-head_empty::register! {
-    debug: Debug,
-    listen_port: ListenPort,
+    debug: bool,
+    listen_port: u16,
 }
 
 let deserializer = serde_json::json!({
@@ -41,22 +19,41 @@ let deserializer = serde_json::json!({
     "listen_port": 8080,
 });
 
-head_empty::init(deserializer).expect("deserializing configuration failed");
+head_empty::init(deserializer)
+    .expect("deserializing configuration failed");
 
-let mysql: &'static Mysql = Mysql::configured();
-assert_eq!(
-    mysql,
-    &Mysql {
-        host: "localhost:5432".into(),
-        database: "test".into(),
-        user: "root".into(),
-        password: "toor".into()
+assert_eq!(configured_debug(), &true);
+assert_eq!(configured_listen_port(), &8080);
+
+mysql::run();
+
+// In a completely different part of your codebase
+mod mysql {
+    #[derive(Debug, PartialEq, Eq, serde::Deserialize)]
+    struct Mysql {
+        host: String,
+        database: String,
+        user: String,
+        password: String,
     }
-);
 
-let debug: &'static Debug = Debug::configured();
-assert_eq!(debug, &Debug(true));
+    head_empty::register! {
+        mysql: Mysql,
+    }
 
-let listen_port: &'static ListenPort = ListenPort::configured();
-assert_eq!(listen_port, &ListenPort(8080));
+    pub(crate) fn run() {
+        let mysql: &'static Mysql = configured_mysql();
+
+        assert_eq!(
+            mysql,
+            &Mysql {
+                host: "localhost:5432".into(),
+                database: "test".into(),
+                user: "root".into(),
+                password: "toor".into()
+            }
+        );
+    }
+}
+
 ```
